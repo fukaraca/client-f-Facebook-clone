@@ -251,15 +251,16 @@ func updateAvatar(c http.Client, link string) bool {
 		log.Println("copy error upavatar:", err)
 		return false
 	}
-	req, err := http.NewRequest(http.MethodPost, "http://localhost:8080/updatepp", body) //strings.NewReader(formData.Encode())
+
+	writer.Close() //kapatilmazsa unexpected eof hatasi veriyor
+	req, err := http.NewRequest(http.MethodPost, "http://localhost:8080/updatepp", body)
 	if err != nil {
 		log.Println("avatar update failed", err)
 		return false
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType()) //header must be set in order to send form values in request body
-	req.Header.Set("boundary", writer.Boundary())
-	//err = writer.Close() //bu yapılmazsa unexpected error hatası veriyor
-	//fmt.Println(err)
+	req.Header.Set("Boundary", writer.Boundary())
+
 	resp, err = c.Do(req)
 	defer resp.Body.Close()
 	defer req.Body.Close()
