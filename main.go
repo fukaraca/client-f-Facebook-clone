@@ -12,7 +12,6 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
-	"time"
 )
 
 type MyJsonName struct {
@@ -42,10 +41,10 @@ type MyJsonName struct {
 				Longitude string `json:"longitude"`
 			} `json:"coordinates"`
 			Postcode string `json:"postcode"`
-			State    string `json:"state"` //country
+			State    string `json:"state"`
 			Street   struct {
-				Name   string `json:"name"`
-				Number string `json:"number"`
+				Name   string      `json:"name"`
+				Number interface{} `json:"number"` //for averting type mismatch err
 			} `json:"street"`
 			Country  string `json:"country"`
 			Timezone struct {
@@ -82,13 +81,26 @@ type MyJsonName struct {
 }
 
 func main() {
-	/*_, err := http.Get("http://localhost:8080/logout")
-	time.Sleep(200 * time.Millisecond)
+	//create 100 accounts
+	for i := 0; i < 100; i++ {
+		fmt.Println(i, "th account:", populateUser())
+	}
 
-	//create a client
+}
+
+//random user
+//create account
+//login
+//edit profile
+//update avatar
+//logout
+
+//populateUser func populates user
+func populateUser() bool {
 	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	if err != nil {
-		log.Fatal("cookiejar creation error:", err)
+		log.Println("cookiejar creation error:", err)
+		return false
 	}
 	c := http.Client{ //no need to redirect
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -96,49 +108,30 @@ func main() {
 		},
 		Jar: jar, //cookies will be stored here
 	}
-	formData := url.Values{
-		"usernameL": {"doodi44"},
-		"passwordL": {"doodi44"},
-	}
-	req, err := http.NewRequest(http.MethodPost, "http://localhost:8080/checkAuthLog", strings.NewReader(formData.Encode()))
-	fmt.Println("newrequest error:", err)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded") //header must be set in order to send form values in request body
-	resp, err := c.Do(req)
-	fmt.Println("client do error:", err)
-	fmt.Println("request jari:", c.Jar.Cookies(req.URL))
-	for _, v := range c.Jar.Cookies(req.URL) {
-		fmt.Println("cookieler:", v.Name, v.Value)
-	}
-	fmt.Println()
-	defer resp.Body.Close()
-	denemeedit(c, "deneme3")
-	for _, v := range c.Jar.Cookies(req.URL) {
-		fmt.Println(v.Name, v.Value)
-	}*/
-	resp, _ := http.Get("http://localhost:8080/logout")
-	defer resp.Body.Close()
+	profile := userGenerator()
 
-	fmt.Println(populateUser())
+	//time.Sleep(1000 * time.Millisecond)
+	if createAccount(profile.Results[0].Login.Username) {
+		//time.Sleep(2000 * time.Millisecond)
+		if loginTo(c, profile.Results[0].Login.Username) {
+			//	time.Sleep(1000 * time.Millisecond)
+			if editProfile(c, profile) {
+				//	time.Sleep(1000 * time.Millisecond)
+				if updateAvatar(c, profile.Results[0].Picture.Large) {
+					//		time.Sleep(1000 * time.Millisecond)
+					if logOut(c) {
+						fmt.Println("succesfully created:", profile.Results[0].Login.Username)
+						return true
+					}
+				}
+			}
+		}
+	}
 
+	return false
 }
 
-func denemeedit(c http.Client, str string) {
-
-	formData1 := url.Values{
-		"firstname":    {str},
-		"lastname":     {str},
-		"gender":       {"male"},
-		"birthday":     {"2021-12-04 23:28:15.000000 +00:00"},
-		"mobilenumber": {str},
-		"country":      {str},
-	}
-	_, err := c.PostForm("http://localhost:8080/updateprofile", formData1)
-	//req, err := http.NewRequest(http.MethodPost, "http://localhost:8080/updateprofile", strings.NewReader(formData1.Encode()))
-	fmt.Println(err)
-	//resp, err := c.Do(req)
-
-}
-
+//logOut logs out
 func logOut(c http.Client) bool {
 	resp, err := c.Get("http://localhost:8080/logout")
 	defer resp.Body.Close()
@@ -174,7 +167,7 @@ func editProfile(c http.Client, profile MyJsonName) bool {
 	return true
 }
 
-//createAccount
+//createAccount uses seed as username, password and also email creatively
 func createAccount(seed string) bool {
 	username := seed
 	password := seed
@@ -228,16 +221,14 @@ func loremipsumGenerator() {
 	fmt.Println(string(body)[2 : len(body)-2])
 }
 
+//updateAvatar func update profile picture in link url
 func updateAvatar(c http.Client, link string) bool {
-	fmt.Println(link)
 	resp, err := http.Get(link)
 	if err != nil {
 		log.Println("getlink error upavatar:", err)
 		return false
 	}
-	/*formData := url.Values{
-		"change_pp": {link},
-	}*/
+
 	body := &bytes.Buffer{}
 
 	writer := multipart.NewWriter(body)
@@ -264,9 +255,7 @@ func updateAvatar(c http.Client, link string) bool {
 	resp, err = c.Do(req)
 	defer resp.Body.Close()
 	defer req.Body.Close()
-	/*_, err := c.PostForm("http://localhost:8080/updatepp", url.Values{
-		"change_pp": {link},
-	})*/
+
 	if err != nil {
 		log.Println("avatar update failed", err)
 		return false
@@ -289,47 +278,4 @@ func userGenerator() MyJsonName {
 		log.Println("unmarshal error:", err)
 	}
 	return randomy
-}
-
-//random user
-//create account
-//login
-//edit profile
-//update avatar
-//logout
-
-//populateUser func populates user
-func populateUser() bool {
-	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
-	if err != nil {
-		log.Println("cookiejar creation error:", err)
-		return false
-	}
-	c := http.Client{ //no need to redirect
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return nil
-		},
-		Jar: jar, //cookies will be stored here
-	}
-	profile := userGenerator()
-
-	time.Sleep(1000 * time.Millisecond)
-	if createAccount(profile.Results[0].Login.Username) {
-		time.Sleep(2000 * time.Millisecond)
-		if loginTo(c, profile.Results[0].Login.Username) {
-			time.Sleep(1000 * time.Millisecond)
-			if editProfile(c, profile) {
-				time.Sleep(1000 * time.Millisecond)
-				if updateAvatar(c, profile.Results[0].Picture.Large) {
-					time.Sleep(1000 * time.Millisecond)
-					if logOut(c) {
-						fmt.Println("succesfully created:", profile.Results[0].Login.Username)
-						return true
-					}
-				}
-			}
-		}
-	}
-
-	return false
 }
