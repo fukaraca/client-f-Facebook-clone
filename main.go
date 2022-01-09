@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v4"
 	"golang.org/x/net/publicsuffix"
 	"io"
 	"log"
@@ -12,6 +14,8 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 )
 
 type MyJsonName struct {
@@ -80,11 +84,41 @@ type MyJsonName struct {
 	} `json:"results"`
 }
 
+//YtEmbedJson is used for Youtube embed link requests from oembed api
+type YtEmbedJson struct {
+	Html string                 `json:"html"`
+	X    map[string]interface{} `json:"-"`
+}
+
+var db_Host = "127.0.0.1"
+var db_Port = "5432"
+var db_Name = "dbForFaceClone"
+var db_User = "postgres"
+var db_Password = "123456"
+var Ctx = context.Background()
+var wg sync.WaitGroup
+
 func main() {
-	//create 100 accounts
-	for i := 0; i < 100; i++ {
-		fmt.Println(i, "th account:", populateUser())
-	}
+
+	/*link := "https://www.youtube.com/watch?ssv=O3VPs9b_HZE"
+	fmt.Println(GetYtEmbed(link))*/
+
+	/*	wg.Add(1)
+		userList := connectDBAndFetch()
+		wg.Wait()
+		for i := 0; i < 10; i++ {
+			wg.Add(len(userList))
+			for _, username := range userList {
+				fmt.Println(username)
+				if populatePost(username) {
+					wg.Done()
+				} else {
+					log.Println("problem with populate post:", username)
+					wg.Done()
+				}
+			}
+			wg.Wait()
+		}*/
 
 }
 
@@ -94,6 +128,32 @@ func main() {
 //edit profile
 //update avatar
 //logout
+
+//populatePost function does populate Post with lorem ipsum generator
+func populatePost(username string) bool {
+	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+	if err != nil {
+		log.Println("cookiejar creation error:", err)
+		return false
+	}
+
+	c := http.Client{ //no need to redirect
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return nil
+		},
+		Jar: jar, //cookies will be stored here
+	}
+	if loginTo(c, username) {
+		if makePost(c, username) {
+			if logOut(c) {
+				fmt.Println("successfully posted:", username)
+				c.CloseIdleConnections()
+				return true
+			}
+		}
+	}
+	return false
+}
 
 //populateUser func populates user
 func populateUser() bool {
@@ -137,6 +197,18 @@ func logOut(c http.Client) bool {
 	defer resp.Body.Close()
 	if err != nil {
 		log.Println("logout failed:", err)
+		return false
+	}
+	return true
+}
+
+func makePost(c http.Client, username string) bool {
+	resp, err := c.PostForm("http://localhost:8080/postIt", url.Values{
+		"postmessage": {loremipsumGenerator()},
+	})
+	defer resp.Body.Close()
+	if err != nil {
+		log.Println("post make request failed:", err)
 		return false
 	}
 	return true
@@ -211,14 +283,15 @@ func loginTo(c http.Client, seed string) bool {
 }
 
 //loremipsumGenerator populates message bodies
-func loremipsumGenerator() {
+func loremipsumGenerator() string {
 	resp, err := http.Get("https://baconipsum.com/api/?type=all-meat&paras=2&start-with-lorem=1")
 	if err != nil {
 		println(err)
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
-	fmt.Println(string(body)[2 : len(body)-2])
+
+	return string(body)[2 : len(body)-2]
 }
 
 //updateAvatar func update profile picture in link url
@@ -278,4 +351,67 @@ func userGenerator() MyJsonName {
 		log.Println("unmarshal error:", err)
 	}
 	return randomy
+}
+
+func GetYtEmbed(shortlink string) string {
+
+	reqLink := fmt.Sprintf("https://www.youtube.com/oembed?url=%s&format=json", shortlink)
+	resp, err := http.Get(reqLink)
+	if err != nil {
+		log.Println("Video link json couldn't be get", err)
+		return "Video can't be loaded!"
+	}
+	defer resp.Body.Close()
+	jsonVideo := YtEmbedJson{}
+	out, err := io.ReadAll(resp.Body)
+
+	if err != nil {
+		log.Println("Video link json couldn't be read", err)
+		return "Video can't be loaded"
+	}
+	if string(out) == "Not Found" {
+		log.Println("invalid youtube url")
+		return "false"
+	}
+
+	err = json.Unmarshal(out, &jsonVideo)
+	if err != nil {
+		log.Println("Video link json unmarshal failed", err)
+		return "Video can't be loaded"
+	}
+	return jsonVideo.Html
+}
+
+func connectDBAndFetch() []string {
+	var databaseURL = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable", db_Host, db_Port, db_User, db_Password, db_Name)
+	ctxT, cancel := context.WithTimeout(Ctx, 5*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctxT, databaseURL)
+	defer conn.Close(ctxT)
+	if err != nil {
+		log.Println("DB connection error:", err)
+	}
+	//check whether connection is ok or not
+	err = conn.Ping(ctxT)
+	if err != nil {
+		log.Println("Ping to DB error:", err)
+	}
+
+	rows, err := conn.Query(ctxT, "SELECT username FROM user_creds")
+	defer rows.Close()
+	if err != nil {
+		log.Println("query username list failed:", err)
+		return nil
+	}
+	userList := []string{}
+	for rows.Next() { //while there is a next
+		tempUser := ""
+		err := rows.Scan(&tempUser)
+		if err != nil {
+			log.Println("row scan failed:", err)
+		}
+		userList = append(userList, tempUser)
+	}
+	wg.Done()
+	return userList
 }
